@@ -1,73 +1,63 @@
-# React + TypeScript + Vite
+# CloudDrive - Modern S3 File Manager
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A secure, serverless file management application built with **React**, **Supabase**, and **AWS S3**.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Secure Authentication**: Email/Password login and registration via Supabase Auth.
+- **Direct S3 Uploads**: Files are uploaded directly to AWS S3 using presigned URLs (serverless architecture).
+- **Drag & Drop**: Modern UI with drag-and-drop file upload support.
+- **Image Previews**: Securely generate signed URLs to preview private images.
+- **File Management**: List, search, download, and delete files.
+- **Row Level Security (RLS)**: Users can only access their own files. Database policies enforce this at the strict SQL level.
+- **Responsive Design**: Built with Tailwind CSS v4, fully responsive and dark-themed.
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend**: React, TypeScript, Vite
+- **Styling**: Tailwind CSS v4, Lucide React (Icons)
+- **Backend / Auth**: Supabase (PostgreSQL, Auth, Edge Functions)
+- **Storage**: AWS S3 (Private Buckets)
+- **Runtime**: Deno (for Edge Functions)
 
-## Expanding the ESLint configuration
+## Installation
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd s3-file
+   ```
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+3. **Environment Setup**
+   Create a `.env` file in the root directory:
+   ```env
+   VITE_SUPABASE_URL=your_supabase_project_url
+   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+   ```
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+4. **Supabase Setup**
+   - Create a new Supabase project.
+   - Run the SQL commands in `schema.sql` to set up the `files` table and RLS policies.
+   - Deploy the Edge Function:
+     ```bash
+     npx supabase functions deploy s3-sign --no-verify-jwt
+     ```
+   - Set Edge Function Secrets:
+     ```bash
+     npx supabase secrets set S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=... S3_REGION=... S3_BUCKET_NAME=...
+     ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+5. **Run Locally**
+   ```bash
+   npm run dev
+   ```
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Security
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- **S3 Access**: keys are NOT stored in the frontend. All S3 operations (Put, Get, Delete) are signed via the standard `s3-sign` Edge Function.
+- **RLS**: PostgreSQL Row Level Security policies ensure data isolation between users.
