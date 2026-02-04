@@ -25,7 +25,7 @@ A secure, serverless file management application built with **React**, **Supabas
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd s3-file
+   cd CloudDrive
    ```
 
 2. **Install dependencies**
