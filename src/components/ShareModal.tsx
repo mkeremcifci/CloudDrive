@@ -26,7 +26,7 @@ export function ShareModal({ isOpen, onClose, fileId, fileName, session }: Share
         setLoading(true);
         try {
             // Check for valid existing link
-            const { data, error } = await supabase
+            const { data } = await supabase
                 .from('shared_links')
                 .select('token')
                 .eq('file_id', fileId)
@@ -144,8 +144,8 @@ export function ShareModal({ isOpen, onClose, fileId, fileName, session }: Share
                                             key={day}
                                             onClick={() => setExpiration(day)}
                                             className={`px-4 py-3 rounded-xl border text-sm font-medium transition-all ${expiration === day
-                                                    ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20'
-                                                    : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
+                                                ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20'
+                                                : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
                                                 }`}
                                         >
                                             {day} Gün
