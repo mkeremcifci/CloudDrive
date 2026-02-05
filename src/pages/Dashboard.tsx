@@ -259,7 +259,7 @@ export default function Dashboard() {
         }
     };
 
-    const handleDownload = async (key: string) => {
+    const handleDownload = async (key: string, name: string) => {
         if (!session) return;
         try {
             const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/s3-sign`, {
@@ -268,12 +268,19 @@ export default function Dashboard() {
                     'Authorization': `Bearer ${session.access_token}`,
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ action: 'download', key: key }),
+                body: JSON.stringify({ action: 'download', key: key, fileName: name }),
             });
 
             if (!response.ok) throw new Error('Download failed');
             const { url } = await response.json();
-            window.open(url, '_blank');
+            // Create a temporary link to force download if needed, or just open
+            // Since we set Content-Disposition, window.location.href or window.open should trigger download
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = name; // HTML5 download attribute as fallback/hint
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         } catch (error: any) {
             alert('Download error: ' + error.message);
         }
@@ -459,7 +466,7 @@ export default function Dashboard() {
                                                     <button onClick={(e) => { e.stopPropagation(); setSelectedFileForShare(file); setShareModalOpen(true) }} className="p-1.5 bg-black/50 hover:bg-purple-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="Paylaş">
                                                         <Share2 className="w-3.5 h-3.5" />
                                                     </button>
-                                                    <button onClick={(e) => { e.stopPropagation(); handleDownload(file.s3_key) }} className="p-1.5 bg-black/50 hover:bg-blue-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="İndir">
+                                                    <button onClick={(e) => { e.stopPropagation(); handleDownload(file.s3_key, file.name) }} className="p-1.5 bg-black/50 hover:bg-blue-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="İndir">
                                                         <Download className="w-3.5 h-3.5" />
                                                     </button>
                                                 </>

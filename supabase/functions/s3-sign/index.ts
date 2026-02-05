@@ -8,20 +8,26 @@ const corsHeaders = {
 }
 
 Deno.serve(async (req) => {
+    // 0. Handle CORS Preflight
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }
 
     try {
+        // 1. Configuration Check
         const S3_ACCESS_KEY_ID = Deno.env.get('S3_ACCESS_KEY_ID');
         const S3_SECRET_ACCESS_KEY = Deno.env.get('S3_SECRET_ACCESS_KEY');
         const S3_REGION = Deno.env.get('S3_REGION');
         const S3_BUCKET_NAME = Deno.env.get('S3_BUCKET_NAME');
+        const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+        const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+        const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
         if (!S3_ACCESS_KEY_ID || !S3_SECRET_ACCESS_KEY || !S3_REGION || !S3_BUCKET_NAME) {
             throw new Error("Server configuration error: Missing S3 secrets.");
         }
 
+        // 2. Initialize Clients
         const s3Client = new S3Client({
             region: S3_REGION,
             credentials: {
@@ -30,28 +36,27 @@ Deno.serve(async (req) => {
             },
         });
 
-        // Use Service Role for DB operations to bypass RLS when needed (handling permissions manually)
-        const supabaseAdmin = createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-        )
+        // Admin client for checking shared links (bypasses RLS)
+        const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-        // Standard Auth check (still needed for upload/delete/private download)
-        const authHeader = req.headers.get('Authorization')
-        const supabaseClient = createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-            { global: { headers: { Authorization: authHeader ?? '' } } }
-        )
-        const { data: { user } } = await supabaseClient.auth.getUser()
+        // Client with user's auth context
+        const authHeader = req.headers.get('Authorization');
+        const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            global: { headers: { Authorization: authHeader ?? '' } }
+        });
 
-        const { action, fileName, fileType, key, token } = await req.json()
-        let result
+        // 3. Get User (Soft check - don't throw yet)
+        const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
 
+        // 4. Parse Request
+        const { action, fileName, fileType, key, token } = await req.json();
+        let result;
+
+        // 5. Action Handlers
         if (action === 'public_download') {
+            // Public Link Logic - No User Auth Required from Request
             if (!token) throw new Error("Token required");
 
-            // 1. Validate Token
             const { data: linkData, error: linkError } = await supabaseAdmin
                 .from('shared_links')
                 .select('file_id, expires_at')
@@ -61,7 +66,6 @@ Deno.serve(async (req) => {
             if (linkError || !linkData) throw new Error('Invalid or expired link');
             if (new Date(linkData.expires_at) < new Date()) throw new Error('Link expired');
 
-            // 2. Get File Info
             const { data: fileData, error: fileError } = await supabaseAdmin
                 .from('files')
                 .select('s3_key, name, size, mime_type')
@@ -70,53 +74,75 @@ Deno.serve(async (req) => {
 
             if (fileError || !fileData) throw new Error('File not found');
 
-            // 3. Generate URL
-            const command = new GetObjectCommand({ Bucket: S3_BUCKET_NAME, Key: fileData.s3_key })
-            const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 })
-
-
-            result = { url, file: fileData }
+            // Force Download for Public Links
+            const encodedName = encodeURIComponent(fileData.name);
+            const command = new GetObjectCommand({
+                Bucket: S3_BUCKET_NAME,
+                Key: fileData.s3_key,
+                ResponseContentDisposition: `attachment; filename="${encodedName}"; filename*=UTF-8''${encodedName}`,
+                ResponseContentType: 'application/octet-stream' // Force download
+            });
+            const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+            result = { url, file: fileData };
 
         } else {
-            // All other actions require Authentication
-            if (!user) throw new Error("Unauthorized");
+            // Private Actions - Require Valid User
+            if (userError || !user) {
+                // Return 401 only here, where it is strictly required
+                console.error("Auth Error:", userError);
+                return new Response(JSON.stringify({ error: "Unauthorized" }), {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                    status: 401,
+                });
+            }
 
             if (action === 'upload') {
-                const fileKey = `${user.id}/${Date.now()}-${fileName}`
+                const fileKey = `${user.id}/${Date.now()}-${fileName}`;
                 const command = new PutObjectCommand({
                     Bucket: S3_BUCKET_NAME,
                     Key: fileKey,
                     ContentType: fileType,
-                })
-                const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 })
-                result = { url, key: fileKey }
+                });
+                const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+                result = { url, key: fileKey };
 
             } else if (action === 'download') {
-                if (!key.startsWith(user.id)) throw new Error("Unauthorized access to file")
-                const command = new GetObjectCommand({ Bucket: S3_BUCKET_NAME, Key: key })
-                const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 })
-                result = { url }
+                if (!key.startsWith(user.id)) throw new Error("Unauthorized access to file");
+
+                const commandInput: any = { Bucket: S3_BUCKET_NAME, Key: key };
+
+                // CRITICAL: Only force download header if 'fileName' is provided (e.g. from Download Button)
+                // If fileName is missing (Thumbnail), use default S3 behavior (inline)
+                if (fileName) {
+                    const encodedName = encodeURIComponent(fileName);
+                    commandInput.ResponseContentDisposition = `attachment; filename="${encodedName}"; filename*=UTF-8''${encodedName}`;
+                    commandInput.ResponseContentType = 'application/octet-stream';
+                }
+
+                const command = new GetObjectCommand(commandInput);
+                const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+                result = { url };
 
             } else if (action === 'delete') {
-                if (!key.startsWith(user.id)) throw new Error("Unauthorized access to file")
-                const command = new DeleteObjectCommand({ Bucket: S3_BUCKET_NAME, Key: key })
-                await s3Client.send(command)
-                result = { success: true }
+                if (!key.startsWith(user.id)) throw new Error("Unauthorized access to file");
+                const command = new DeleteObjectCommand({ Bucket: S3_BUCKET_NAME, Key: key });
+                await s3Client.send(command);
+                result = { success: true };
             } else {
-                throw new Error(`Unknown action: ${action}`)
+                throw new Error(`Unknown action: ${action}`);
             }
         }
 
         return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             status: 200,
-        })
+        });
 
     } catch (error) {
-        console.error(error)
+        console.error("Function Error:", error);
         return new Response(JSON.stringify({ error: error.message }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             status: 400,
-        })
+        });
     }
-})
+});
