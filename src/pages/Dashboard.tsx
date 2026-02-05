@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { Folder, Upload, Trash2, LogOut, Search, Plus, Download, Loader2, ChevronRight, Home, FolderPlus } from 'lucide-react';
+import { Folder, Upload, Trash2, LogOut, Search, Plus, Download, Loader2, ChevronRight, Home, FolderPlus, Share2 } from 'lucide-react';
 import { FileThumbnail } from '../components/FileThumbnail';
 import { CreateFolderModal } from '../components/CreateFolderModal';
+import { ShareModal } from '../components/ShareModal';
 
 interface FileItem {
     id: string;
@@ -24,6 +25,10 @@ export default function Dashboard() {
     const [dragActive, setDragActive] = useState(false);
     const [session, setSession] = useState<any>(null);
     const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+
+    // Share Modal State
+    const [shareModalOpen, setShareModalOpen] = useState(false);
+    const [selectedFileForShare, setSelectedFileForShare] = useState<FileItem | null>(null);
 
     // Folder State
     const [currentFolder, setCurrentFolder] = useState<FileItem | null>(null);
@@ -293,6 +298,17 @@ export default function Dashboard() {
                 onCreate={handleCreateFolder}
             />
 
+            {/* Share Modal */}
+            {session && selectedFileForShare && (
+                <ShareModal
+                    isOpen={shareModalOpen}
+                    onClose={() => setShareModalOpen(false)}
+                    fileId={selectedFileForShare.id}
+                    fileName={selectedFileForShare.name}
+                    session={session}
+                />
+            )}
+
             {/* Sidebar */}
             <div className="w-64 bg-slate-900 border-r border-white/10 p-6 flex flex-col z-20">
                 <div className="flex items-center gap-3 mb-10 text-blue-500">
@@ -431,17 +447,22 @@ export default function Dashboard() {
                                         onDrop={(e) => isFolder && onFolderDrop(e, file.id)}
                                         onClick={() => isFolder ? enterFolder(file) : null}
                                         className={`group rounded-2xl p-3 transition-all flex flex-col hover:-translate-y-1 hover:shadow-xl hover:shadow-black/50 relative overflow-hidden ${isFolder
-                                                ? 'bg-blue-600/10 border border-blue-500/20 hover:bg-blue-600/20 hover:border-blue-500/40 cursor-pointer'
-                                                : 'bg-white/5 border border-white/5 hover:border-blue-500/30 hover:bg-white/[0.07] cursor-default'
+                                            ? 'bg-blue-600/10 border border-blue-500/20 hover:bg-blue-600/20 hover:border-blue-500/40 cursor-pointer'
+                                            : 'bg-white/5 border border-white/5 hover:border-blue-500/30 hover:bg-white/[0.07] cursor-default'
                                             }`}
                                     >
 
                                         {/* Actions Overlay */}
                                         <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                                             {!isFolder && (
-                                                <button onClick={(e) => { e.stopPropagation(); handleDownload(file.s3_key) }} className="p-1.5 bg-black/50 hover:bg-blue-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="İndir">
-                                                    <Download className="w-3.5 h-3.5" />
-                                                </button>
+                                                <>
+                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedFileForShare(file); setShareModalOpen(true) }} className="p-1.5 bg-black/50 hover:bg-purple-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="Paylaş">
+                                                        <Share2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleDownload(file.s3_key) }} className="p-1.5 bg-black/50 hover:bg-blue-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="İndir">
+                                                        <Download className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </>
                                             )}
                                             <button onClick={(e) => { e.stopPropagation(); handleDelete(file.id, file.s3_key, isFolder) }} className="p-1.5 bg-black/50 hover:bg-red-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="Sil">
                                                 <Trash2 className="w-3.5 h-3.5" />

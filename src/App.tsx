@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
+import PublicDownload from './pages/PublicDownload';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -42,6 +43,7 @@ export default function App() {
           path="/dashboard"
           element={session ? <Dashboard /> : <Navigate to="/" replace />}
         />
+        <Route path="/s/:token" element={<PublicDownload />} />
       </Routes>
     </BrowserRouter>
   );
