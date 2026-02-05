@@ -10,14 +10,15 @@ interface FileItem {
 interface FileThumbnailProps {
     file: FileItem;
     session: any;
+    iconOnly?: boolean;
 }
 
-export const FileThumbnail = ({ file, session }: FileThumbnailProps) => {
+export const FileThumbnail = ({ file, session, iconOnly }: FileThumbnailProps) => {
     const [imageUrl, setImageUrl] = useState<string | null>(null);
 
     useEffect(() => {
         // Only fetch for images
-        if (!file.mime_type.startsWith('image/')) return;
+        if (!file.mime_type.startsWith('image/') || iconOnly) return;
 
         let mounted = true;
         const fetchPreview = async () => {
@@ -46,15 +47,15 @@ export const FileThumbnail = ({ file, session }: FileThumbnailProps) => {
         fetchPreview();
 
         return () => { mounted = false; };
-    }, [file.s3_key, file.mime_type, session.access_token]);
+    }, [file.s3_key, file.mime_type, session.access_token, iconOnly]);
 
-    if (imageUrl) {
+    if (imageUrl && !iconOnly) {
         return <img src={imageUrl} alt={file.name} className="w-full h-full object-cover rounded-xl" />;
     }
 
     return (
-        <div className={`w-full h-full flex items-center justify-center p-3 rounded-xl ${file.mime_type.includes('image') ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
-            {file.mime_type.includes('image') ? <ImageIcon className="w-8 h-8" /> : <File className="w-8 h-8" />}
+        <div className={`w-full h-full flex items-center justify-center ${iconOnly ? '' : 'p-3 rounded-xl'} ${file.mime_type.includes('image') ? (iconOnly ? 'text-purple-400' : 'bg-purple-500/20 text-purple-400') : (iconOnly ? 'text-blue-400' : 'bg-blue-500/20 text-blue-400')}`}>
+            {file.mime_type.includes('image') ? <ImageIcon className={iconOnly ? "w-5 h-5" : "w-8 h-8"} /> : <File className={iconOnly ? "w-5 h-5" : "w-8 h-8"} />}
         </div>
     );
 };

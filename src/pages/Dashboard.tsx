@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { Folder, Upload, Trash2, LogOut, Search, Plus, Download, Loader2, ChevronRight, Home, FolderPlus, Share2 } from 'lucide-react';
+import { Folder, Upload, Trash2, LogOut, Search, Plus, Download, Loader2, ChevronRight, Home, FolderPlus, Share2, LayoutList, Grid2x2, CheckSquare, Square } from 'lucide-react';
 import { FileThumbnail } from '../components/FileThumbnail';
 import { CreateFolderModal } from '../components/CreateFolderModal';
 import { ShareModal } from '../components/ShareModal';
@@ -25,6 +25,9 @@ export default function Dashboard() {
     const [dragActive, setDragActive] = useState(false);
     const [session, setSession] = useState<any>(null);
     const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     // Share Modal State
     const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -106,6 +109,25 @@ export default function Dashboard() {
         setFolderChain([...folderChain, folder]);
         setCurrentFolder(folder);
         setSearchQuery(''); // Clear search on navigation
+        setSelectedIds(new Set()); // Clear selection
+    };
+
+    const toggleSelection = (id: string) => {
+        const newSelected = new Set(selectedIds);
+        if (newSelected.has(id)) {
+            newSelected.delete(id);
+        } else {
+            newSelected.add(id);
+        }
+        setSelectedIds(newSelected);
+    };
+
+    const selectAll = () => {
+        if (selectedIds.size === filteredFiles.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(filteredFiles.map(f => f.id)));
+        }
     };
 
     const navigateToBreadcrumb = (index: number) => {
@@ -231,32 +253,53 @@ export default function Dashboard() {
         }
     };
 
-    const handleDelete = async (id: string, key: string, isFolder: boolean) => {
-        if (!confirm(isFolder ? 'Bu klasörü ve içindekileri silmek istediğinize emin misiniz?' : 'Bu dosyayı silmek istediğinize emin misiniz?')) return;
+    const handleDelete = async (id: string | string[], key: string | string[], isFolder: boolean | boolean[]) => {
+        const ids = Array.isArray(id) ? id : [id];
+        const keys = Array.isArray(key) ? key : [key];
+        const isFolders = Array.isArray(isFolder) ? isFolder : [isFolder];
+
+        const count = ids.length;
+        if (!confirm(count > 1 ? `${count} öğeyi silmek istediğinize emin misiniz?` : (isFolders[0] ? 'Bu klasörü ve içindekileri silmek istediğinize emin misiniz?' : 'Bu dosyayı silmek istediğinize emin misiniz?'))) return;
+
         if (!session) return;
 
         try {
-            if (!isFolder) {
-                // Delete actual S3 object
-                const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/s3-sign`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${session.access_token}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ action: 'delete', key: key }),
-                });
-
-                if (!response.ok) throw new Error('Delete failed');
+            // S3 Deletions (only for files)
+            // Loop for S3 deletion for now as a safe bet if backend only takes single 'key'
+            for (let i = 0; i < keys.length; i++) {
+                if (!isFolders[i]) {
+                    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/s3-sign`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${session.access_token}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ action: 'delete', key: keys[i] }),
+                    });
+                    if (!response.ok) console.error(`Failed to delete ${keys[i]}`);
+                }
             }
 
-            const { error } = await supabase.from('files').delete().eq('id', id);
+
+            const { error } = await supabase.from('files').delete().in('id', ids);
             if (error) throw error;
 
-            setFiles(files.filter(f => f.id !== id));
+            setFiles(files.filter(f => !ids.includes(f.id)));
+            setSelectedIds(new Set()); // Clear selection
         } catch (error: any) {
             alert('Silme başarısız: ' + error.message);
         }
+    };
+
+    const handleBulkDelete = () => {
+        if (selectedIds.size === 0) return;
+
+        const filesToDelete = files.filter(f => selectedIds.has(f.id));
+        const ids = filesToDelete.map(f => f.id);
+        const keys = filesToDelete.map(f => f.s3_key);
+        const isFolders = filesToDelete.map(f => f.mime_type === FOLDER_MIME_TYPE);
+
+        handleDelete(ids, keys, isFolders);
     };
 
     const handleDownload = async (key: string, name: string) => {
@@ -413,15 +456,52 @@ export default function Dashboard() {
                         ))}
                     </div>
 
-                    <div className="relative w-96 group ml-4">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-blue-500 transition-colors" />
-                        <input
-                            type="text"
-                            placeholder="Dosya ara..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full bg-black/20 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all"
-                        />
+                    <div className="flex items-center gap-4">
+                        {selectedIds.size > 0 && (
+                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200 bg-blue-600/20 border border-blue-500/30 px-4 py-1.5 rounded-xl">
+                                <span className="text-sm text-blue-200 font-medium mr-2">{selectedIds.size} seçildi</span>
+                                <button
+                                    onClick={handleBulkDelete}
+                                    className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
+                                    title="Seçilenleri Sil"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                    onClick={() => setSelectedIds(new Set())}
+                                    className="p-1.5 hover:bg-white/10 text-gray-400 rounded-lg transition-colors"
+                                    title="Seçimi İptal Et"
+                                >
+                                    <LogOut className="w-4 h-4 rotate-180" />
+                                </button>
+                            </div>
+                        )}
+
+                        <div className="flex items-center bg-black/20 p-1 rounded-xl border border-white/10">
+                            <button
+                                onClick={() => setViewMode('grid')}
+                                className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                                <Grid2x2 className="w-5 h-5" />
+                            </button>
+                            <button
+                                onClick={() => setViewMode('list')}
+                                className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                                <LayoutList className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="relative w-64 group">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-blue-500 transition-colors" />
+                            <input
+                                type="text"
+                                placeholder="Dosya ara..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full bg-black/20 border border-white/10 rounded-xl py-2 pl-9 pr-4 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all"
+                            />
+                        </div>
                     </div>
                 </header>
 
@@ -441,63 +521,151 @@ export default function Dashboard() {
                             <p className="text-sm mb-6">Dosya yükleyin veya yeni klasör oluşturun</p>
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                            {filteredFiles.map((file) => {
-                                const isFolder = file.mime_type === FOLDER_MIME_TYPE;
-                                return (
-                                    <div
-                                        key={file.id}
-                                        draggable={!isFolder}
-                                        onDragStart={(e) => !isFolder && onFileDragStart(e, file.id)}
-                                        onDragOver={(e) => isFolder && onFolderDragOver(e)}
-                                        onDragLeave={(e) => isFolder && onFolderDragLeave(e)}
-                                        onDrop={(e) => isFolder && onFolderDrop(e, file.id)}
-                                        onClick={() => isFolder ? enterFolder(file) : null}
-                                        className={`group rounded-2xl p-3 transition-all flex flex-col hover:-translate-y-1 hover:shadow-xl hover:shadow-black/50 relative overflow-hidden ${isFolder
-                                            ? 'bg-blue-600/10 border border-blue-500/20 hover:bg-blue-600/20 hover:border-blue-500/40 cursor-pointer'
-                                            : 'bg-white/5 border border-white/5 hover:border-blue-500/30 hover:bg-white/[0.07] cursor-default'
-                                            }`}
-                                    >
+                        <>
+                            {viewMode === 'grid' ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                                    {filteredFiles.map((file) => {
+                                        const isFolder = file.mime_type === FOLDER_MIME_TYPE;
+                                        const isSelected = selectedIds.has(file.id);
+                                        return (
+                                            <div
+                                                key={file.id}
+                                                draggable={!isFolder}
+                                                onDragStart={(e) => !isFolder && onFileDragStart(e, file.id)}
+                                                onDragOver={(e) => isFolder && onFolderDragOver(e)}
+                                                onDragLeave={(e) => isFolder && onFolderDragLeave(e)}
+                                                onDrop={(e) => isFolder && onFolderDrop(e, file.id)}
+                                                onClick={() => {
+                                                    if (selectedIds.size > 0) {
+                                                        toggleSelection(file.id);
+                                                    } else if (isFolder) {
+                                                        enterFolder(file);
+                                                    }
+                                                }}
+                                                className={`group rounded-2xl p-3 transition-all flex flex-col hover:-translate-y-1 hover:shadow-xl hover:shadow-black/50 relative overflow-hidden ${isSelected ? 'ring-2 ring-blue-500 bg-blue-500/10' : ''} ${isFolder
+                                                    ? 'bg-blue-600/10 border border-blue-500/20 hover:bg-blue-600/20 hover:border-blue-500/40 cursor-pointer'
+                                                    : 'bg-white/5 border border-white/5 hover:border-blue-500/30 hover:bg-white/[0.07] cursor-default'
+                                                    }`}
+                                            >
+                                                {/* Selection Checkbox (Grid) */}
+                                                <div
+                                                    onClick={(e) => { e.stopPropagation(); toggleSelection(file.id); }}
+                                                    className={`absolute top-3 left-3 z-20 p-1 rounded-md transition-all cursor-pointer ${isSelected ? 'opacity-100 text-blue-500' : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white bg-black/40 backdrop-blur-sm'}`}
+                                                >
+                                                    {isSelected ? <CheckSquare className="w-5 h-5 fill-blue-500/20" /> : <Square className="w-5 h-5" />}
+                                                </div>
 
-                                        {/* Actions Overlay */}
-                                        <div className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                                            {!isFolder && (
-                                                <>
-                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedFileForShare(file); setShareModalOpen(true) }} className="p-1.5 bg-black/50 hover:bg-purple-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="Paylaş">
-                                                        <Share2 className="w-3.5 h-3.5" />
+                                                {/* Actions Overlay */}
+                                                <div className={`absolute top-3 right-3 z-10 ${isSelected ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'} transition-opacity flex gap-1`}>
+                                                    {!isFolder && (
+                                                        <>
+                                                            <button onClick={(e) => { e.stopPropagation(); setSelectedFileForShare(file); setShareModalOpen(true) }} className="p-1.5 bg-black/50 hover:bg-purple-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="Paylaş">
+                                                                <Share2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                            <button onClick={(e) => { e.stopPropagation(); handleDownload(file.s3_key, file.name) }} className="p-1.5 bg-black/50 hover:bg-blue-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="İndir">
+                                                                <Download className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(file.id, file.s3_key, isFolder) }} className="p-1.5 bg-black/50 hover:bg-red-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="Sil">
+                                                        <Trash2 className="w-3.5 h-3.5" />
                                                     </button>
-                                                    <button onClick={(e) => { e.stopPropagation(); handleDownload(file.s3_key, file.name) }} className="p-1.5 bg-black/50 hover:bg-blue-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="İndir">
-                                                        <Download className="w-3.5 h-3.5" />
-                                                    </button>
-                                                </>
-                                            )}
-                                            <button onClick={(e) => { e.stopPropagation(); handleDelete(file.id, file.s3_key, isFolder) }} className="p-1.5 bg-black/50 hover:bg-red-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="Sil">
-                                                <Trash2 className="w-3.5 h-3.5" />
+                                                </div>
+
+                                                <div className={`aspect-square rounded-xl mb-3 overflow-hidden relative flex items-center justify-center ${isFolder ? 'bg-blue-500/20' : 'bg-black/20'}`}>
+                                                    {isFolder ? (
+                                                        <div className="relative">
+                                                            <Folder className="w-20 h-20 text-blue-400 drop-shadow-lg" fill="currentColor" />
+                                                            <div className="absolute inset-0 bg-blue-400/20 blur-xl rounded-full" />
+                                                        </div>
+                                                    ) : (
+                                                        session && <FileThumbnail file={file} session={session} />
+                                                    )}
+                                                </div>
+
+                                                <div>
+                                                    <h3 className={`font-medium truncate text-sm mb-1 ${isFolder ? 'text-blue-100' : 'text-white'}`} title={file.name}>{file.name}</h3>
+                                                    <div className="flex items-center justify-between text-xs text-gray-500">
+                                                        <span>{formatSize(file.size)}</span>
+                                                        <span>{new Date(file.created_at).toLocaleDateString()}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="bg-white/5 rounded-2xl border border-white/5 overflow-hidden">
+                                    <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 p-4 border-b border-white/5 text-sm font-medium text-gray-400 bg-black/20">
+                                        <div className="w-6 flex items-center justify-center">
+                                            <button onClick={selectAll} className="hover:text-white transition-colors">
+                                                {selectedIds.size > 0 && selectedIds.size === filteredFiles.length ? <CheckSquare className="w-4 h-4 text-blue-500" /> : <Square className="w-4 h-4" />}
                                             </button>
                                         </div>
-
-                                        <div className={`aspect-square rounded-xl mb-3 overflow-hidden relative flex items-center justify-center ${isFolder ? 'bg-blue-500/20' : 'bg-black/20'}`}>
-                                            {isFolder ? (
-                                                <div className="relative">
-                                                    <Folder className="w-20 h-20 text-blue-400 drop-shadow-lg" fill="currentColor" />
-                                                    <div className="absolute inset-0 bg-blue-400/20 blur-xl rounded-full" />
-                                                </div>
-                                            ) : (
-                                                session && <FileThumbnail file={file} session={session} />
-                                            )}
-                                        </div>
-
-                                        <div>
-                                            <h3 className={`font-medium truncate text-sm mb-1 ${isFolder ? 'text-blue-100' : 'text-white'}`} title={file.name}>{file.name}</h3>
-                                            <div className="flex items-center justify-between text-xs text-gray-500">
-                                                <span>{formatSize(file.size)}</span>
-                                                <span>{new Date(file.created_at).toLocaleDateString()}</span>
-                                            </div>
-                                        </div>
+                                        <div>Ad</div>
+                                        <div className="text-right w-24">Boyut</div>
+                                        <div className="text-right w-32">Tarih</div>
+                                        <div className="w-24 text-center">İşlemler</div>
                                     </div>
-                                );
-                            })}
-                        </div>
+                                    {filteredFiles.map((file) => {
+                                        const isFolder = file.mime_type === FOLDER_MIME_TYPE;
+                                        const isSelected = selectedIds.has(file.id);
+                                        return (
+                                            <div
+                                                key={file.id}
+                                                draggable={!isFolder}
+                                                onDragStart={(e) => !isFolder && onFileDragStart(e, file.id)}
+                                                onDragOver={(e) => isFolder && onFolderDragOver(e)}
+                                                onDragLeave={(e) => isFolder && onFolderDragLeave(e)}
+                                                onDrop={(e) => isFolder && onFolderDrop(e, file.id)}
+                                                onClick={() => {
+                                                    if (selectedIds.size > 0) {
+                                                        toggleSelection(file.id);
+                                                    } else if (isFolder) {
+                                                        enterFolder(file);
+                                                    }
+                                                }}
+                                                className={`grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 p-3 items-center border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors cursor-pointer group ${isSelected ? 'bg-blue-500/10' : ''}`}
+                                            >
+                                                <div
+                                                    className="w-6 flex items-center justify-center"
+                                                    onClick={(e) => { e.stopPropagation(); toggleSelection(file.id); }}
+                                                >
+                                                    {isSelected ? <CheckSquare className="w-4 h-4 text-blue-500" /> : <Square className="w-4 h-4 text-gray-500 hover:text-white" />}
+                                                </div>
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className={`p-2 rounded-lg ${isFolder ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-gray-400'}`}>
+                                                        {isFolder ? <Folder className="w-5 h-5" /> : <FileThumbnail file={file} session={session} iconOnly />}
+                                                    </div>
+                                                    <span className={`truncate font-medium ${isFolder ? 'text-blue-100' : 'text-gray-200'}`}>{file.name}</span>
+                                                </div>
+                                                <div className="text-right text-sm text-gray-400 w-24">
+                                                    {isFolder ? '-' : formatSize(file.size)}
+                                                </div>
+                                                <div className="text-right text-sm text-gray-400 w-32">
+                                                    {new Date(file.created_at).toLocaleDateString()}
+                                                </div>
+                                                <div className="flex items-center justify-center gap-2 w-24 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {!isFolder && (
+                                                        <>
+                                                            <button onClick={(e) => { e.stopPropagation(); setSelectedFileForShare(file); setShareModalOpen(true) }} className="p-1.5 hover:bg-purple-500/20 text-purple-400 rounded-lg transition-colors" title="Paylaş">
+                                                                <Share2 className="w-4 h-4" />
+                                                            </button>
+                                                            <button onClick={(e) => { e.stopPropagation(); handleDownload(file.s3_key, file.name) }} className="p-1.5 hover:bg-blue-500/20 text-blue-400 rounded-lg transition-colors" title="İndir">
+                                                                <Download className="w-4 h-4" />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(file.id, file.s3_key, isFolder) }} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors" title="Sil">
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </>
                     )}
                 </main>
             </div>
