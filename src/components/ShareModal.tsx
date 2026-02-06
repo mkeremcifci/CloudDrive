@@ -31,7 +31,7 @@ export function ShareModal({ isOpen, onClose, fileId, fileName, session }: Share
                 .select('token')
                 .eq('file_id', fileId)
                 .gte('expires_at', new Date().toISOString())
-                .single();
+                .maybeSingle();
 
             if (data) {
                 setShareLink(`${window.location.origin}/s/${data.token}`);
