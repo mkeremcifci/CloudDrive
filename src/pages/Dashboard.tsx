@@ -22,6 +22,7 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
     const [dragActive, setDragActive] = useState(false);
     const [session, setSession] = useState<any>(null);
     const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -43,11 +44,20 @@ export default function Dashboard() {
         });
     }, []);
 
+    // Debounce search query
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearchQuery(searchQuery);
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
     useEffect(() => {
         if (session) {
             fetchFiles(currentFolder?.id || null);
         }
-    }, [session, currentFolder]);
+    }, [session, currentFolder, debouncedSearchQuery]);
 
     const fetchFiles = async (folderId: string | null) => {
         if (!session) return;
@@ -58,10 +68,16 @@ export default function Dashboard() {
                 .select('*')
                 .eq('user_id', session.user.id);
 
-            if (folderId) {
-                query = query.eq('parent_id', folderId);
+            // If searching, ignore folder structure and search globally
+            if (debouncedSearchQuery) {
+                query = query.ilike('name', `%${debouncedSearchQuery}%`);
             } else {
-                query = query.is('parent_id', null);
+                // Normal navigation
+                if (folderId) {
+                    query = query.eq('parent_id', folderId);
+                } else {
+                    query = query.is('parent_id', null);
+                }
             }
 
             const { data, error } = await query.order('created_at', { ascending: false });
@@ -123,10 +139,10 @@ export default function Dashboard() {
     };
 
     const selectAll = () => {
-        if (selectedIds.size === filteredFiles.length) {
+        if (selectedIds.size === files.length) {
             setSelectedIds(new Set());
         } else {
-            setSelectedIds(new Set(filteredFiles.map(f => f.id)));
+            setSelectedIds(new Set(files.map(f => f.id)));
         }
     };
 
@@ -337,8 +353,8 @@ export default function Dashboard() {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
-    // Filtered files for display
-    const filteredFiles = files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    // Filtered files for display - REMOVED client side filtering
+    // const filteredFiles = files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
     return (
         <div className="flex h-screen bg-[#0f172a] text-white" onDragEnter={handleDrag}>
@@ -507,12 +523,22 @@ export default function Dashboard() {
 
                 {/* File List */}
                 <main className="flex-1 overflow-y-auto p-8">
+                    {debouncedSearchQuery && (
+                        <div className="mb-6 flex items-center justify-between">
+                            <h2 className="text-lg font-semibold text-white">
+                                "{debouncedSearchQuery}" için arama sonuçları
+                            </h2>
+                            <p className="text-sm text-gray-400">
+                                Tüm klasörlerde aranıyor
+                            </p>
+                        </div>
+                    )}
                     {loading ? (
                         <div className="flex items-center justify-center h-full text-gray-500">
                             <Loader2 className="w-8 h-8 animate-spin mr-3 text-blue-500" />
                             Yükleniyor...
                         </div>
-                    ) : filteredFiles.length === 0 ? (
+                    ) : files.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-[60vh] text-gray-500 border-2 border-dashed border-white/10 rounded-3xl m-4 transition-colors hover:border-white/20 hover:bg-white/5">
                             <div className="p-4 bg-white/5 rounded-full mb-4">
                                 <FolderPlus className="w-8 h-8 text-gray-400" />
@@ -524,7 +550,7 @@ export default function Dashboard() {
                         <>
                             {viewMode === 'grid' ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                                    {filteredFiles.map((file) => {
+                                    {files.map((file) => {
                                         const isFolder = file.mime_type === FOLDER_MIME_TYPE;
                                         const isSelected = selectedIds.has(file.id);
                                         return (
@@ -599,7 +625,7 @@ export default function Dashboard() {
                                     <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 p-4 border-b border-white/5 text-sm font-medium text-gray-400 bg-black/20">
                                         <div className="w-6 flex items-center justify-center">
                                             <button onClick={selectAll} className="hover:text-white transition-colors">
-                                                {selectedIds.size > 0 && selectedIds.size === filteredFiles.length ? <CheckSquare className="w-4 h-4 text-blue-500" /> : <Square className="w-4 h-4" />}
+                                                {selectedIds.size > 0 && selectedIds.size === files.length ? <CheckSquare className="w-4 h-4 text-blue-500" /> : <Square className="w-4 h-4" />}
                                             </button>
                                         </div>
                                         <div>Ad</div>
@@ -607,7 +633,7 @@ export default function Dashboard() {
                                         <div className="text-right w-32">Tarih</div>
                                         <div className="w-24 text-center">İşlemler</div>
                                     </div>
-                                    {filteredFiles.map((file) => {
+                                    {files.map((file) => {
                                         const isFolder = file.mime_type === FOLDER_MIME_TYPE;
                                         const isSelected = selectedIds.has(file.id);
                                         return (
