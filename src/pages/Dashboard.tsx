@@ -5,6 +5,7 @@ import { FileThumbnail } from '../components/FileThumbnail';
 import { CreateFolderModal } from '../components/CreateFolderModal';
 import { ShareModal } from '../components/ShareModal';
 import { RenameModal } from '../components/RenameModal';
+import { ImagePreviewModal } from '../components/ImagePreviewModal';
 import { FilePenLine } from 'lucide-react';
 
 interface FileItem {
@@ -39,6 +40,10 @@ export default function Dashboard() {
     // Rename Modal State
     const [renameModalOpen, setRenameModalOpen] = useState(false);
     const [selectedFileForRename, setSelectedFileForRename] = useState<FileItem | null>(null);
+
+    // Image Preview State
+    const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
     // Folder State
     const [currentFolder, setCurrentFolder] = useState<FileItem | null>(null);
@@ -195,6 +200,43 @@ export default function Dashboard() {
             fetchFiles(currentFolder?.id || null);
         } catch (error: any) {
             alert('Dosya taşınamadı: ' + error.message);
+        }
+    };
+
+    // Image Navigation
+    const getImagesInCurrentFolder = () => {
+        return files.filter(f => f.mime_type?.startsWith('image/'));
+    };
+
+    const handleNextImage = () => {
+        if (!previewFile) return;
+        const images = getImagesInCurrentFolder();
+        const currentIndex = images.findIndex(f => f.id === previewFile.id);
+        if (currentIndex < images.length - 1) {
+            setPreviewFile(images[currentIndex + 1]);
+        }
+    };
+
+    const handlePrevImage = () => {
+        if (!previewFile) return;
+        const images = getImagesInCurrentFolder();
+        const currentIndex = images.findIndex(f => f.id === previewFile.id);
+        if (currentIndex > 0) {
+            setPreviewFile(images[currentIndex - 1]);
+        }
+    };
+
+    const handleFileClick = (file: FileItem) => {
+        if (selectedIds.size > 0) {
+            toggleSelection(file.id);
+            return;
+        }
+
+        if (file.mime_type === FOLDER_MIME_TYPE) {
+            enterFolder(file);
+        } else if (file.mime_type.startsWith('image/')) {
+            setPreviewFile(file);
+            setIsPreviewOpen(true);
         }
     };
 
@@ -412,6 +454,20 @@ export default function Dashboard() {
                 />
             )}
 
+            {/* Image Preview Modal */}
+            {previewFile && (
+                <ImagePreviewModal
+                    isOpen={isPreviewOpen}
+                    onClose={() => setIsPreviewOpen(false)}
+                    file={previewFile}
+                    session={session}
+                    onNext={handleNextImage}
+                    onPrev={handlePrevImage}
+                    hasNext={getImagesInCurrentFolder().findIndex(f => f.id === previewFile.id) < getImagesInCurrentFolder().length - 1}
+                    hasPrev={getImagesInCurrentFolder().findIndex(f => f.id === previewFile.id) > 0}
+                />
+            )}
+
             {/* Sidebar */}
             <div className="w-64 bg-slate-900 border-r border-white/10 p-6 flex flex-col z-20">
                 <div className="flex items-center gap-3 mb-10 text-blue-500">
@@ -598,13 +654,7 @@ export default function Dashboard() {
                                                 onDragOver={(e) => isFolder && onFolderDragOver(e)}
                                                 onDragLeave={(e) => isFolder && onFolderDragLeave(e)}
                                                 onDrop={(e) => isFolder && onFolderDrop(e, file.id)}
-                                                onClick={() => {
-                                                    if (selectedIds.size > 0) {
-                                                        toggleSelection(file.id);
-                                                    } else if (isFolder) {
-                                                        enterFolder(file);
-                                                    }
-                                                }}
+                                                onClick={() => handleFileClick(file)}
                                                 className={`group rounded-2xl p-3 transition-all flex flex-col hover:-translate-y-1 hover:shadow-xl hover:shadow-black/50 relative overflow-hidden ${isSelected ? 'ring-2 ring-blue-500 bg-blue-500/10' : ''} ${isFolder
                                                     ? 'bg-blue-600/10 border border-blue-500/20 hover:bg-blue-600/20 hover:border-blue-500/40 cursor-pointer'
                                                     : 'bg-white/5 border border-white/5 hover:border-blue-500/30 hover:bg-white/[0.07] cursor-default'
@@ -684,13 +734,7 @@ export default function Dashboard() {
                                                 onDragOver={(e) => isFolder && onFolderDragOver(e)}
                                                 onDragLeave={(e) => isFolder && onFolderDragLeave(e)}
                                                 onDrop={(e) => isFolder && onFolderDrop(e, file.id)}
-                                                onClick={() => {
-                                                    if (selectedIds.size > 0) {
-                                                        toggleSelection(file.id);
-                                                    } else if (isFolder) {
-                                                        enterFolder(file);
-                                                    }
-                                                }}
+                                                onClick={() => handleFileClick(file)}
                                                 className={`grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 p-3 items-center border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors cursor-pointer group ${isSelected ? 'bg-blue-500/10' : ''}`}
                                             >
                                                 <div
