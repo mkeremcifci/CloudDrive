@@ -337,40 +337,86 @@ export default function Dashboard() {
         }
     };
 
+    const getRecursiveContents = async (folderIds: string[]): Promise<{ fileIds: string[], s3Keys: string[] }> => {
+        let allFileIds: string[] = [];
+        let allS3Keys: string[] = [];
+        let currentFolderIds = [...folderIds];
+
+        while (currentFolderIds.length > 0) {
+            const { data, error } = await supabase
+                .from('files')
+                .select('id, s3_key, mime_type')
+                .in('parent_id', currentFolderIds);
+
+            if (error) throw error;
+            if (!data) break;
+
+            const files = data.filter(f => f.mime_type !== FOLDER_MIME_TYPE);
+            const folders = data.filter(f => f.mime_type === FOLDER_MIME_TYPE);
+
+            allFileIds.push(...files.map(f => f.id));
+            allFileIds.push(...folders.map(f => f.id));
+            allS3Keys.push(...files.map(f => f.s3_key));
+            allS3Keys.push(...folders.map(f => f.s3_key)); // Folders also have S3 keys
+
+            currentFolderIds = folders.map(f => f.id);
+        }
+
+        return { fileIds: allFileIds, s3Keys: allS3Keys };
+    };
+
     const handleDelete = async (id: string | string[], key: string | string[], isFolder: boolean | boolean[]) => {
         const ids = Array.isArray(id) ? id : [id];
         const keys = Array.isArray(key) ? key : [key];
         const isFolders = Array.isArray(isFolder) ? isFolder : [isFolder];
 
         const count = ids.length;
-        if (!confirm(count > 1 ? `${count} öğeyi silmek istediğinize emin misiniz?` : (isFolders[0] ? 'Bu klasörü ve içindekileri silmek istediğinize emin misiniz?' : 'Bu dosyayı silmek istediğinize emin misiniz?'))) return;
+        if (!confirm(count > 1 ? `${count} öğeyi silmek istediğinize emin misiniz?` : (isFolders[0] ? 'Bu klasörü ve içindekileri silmek istediğinize emin misiniz? Geri alınamaz!' : 'Bu dosyayı silmek istediğinize emin misiniz?'))) return;
 
         if (!session) return;
 
         try {
-            // S3 Deletions (only for files)
-            // Loop for S3 deletion for now as a safe bet if backend only takes single 'key'
-            for (let i = 0; i < keys.length; i++) {
-                if (!isFolders[i]) {
+            let idsToDelete = [...ids];
+            let keysToDelete = [...keys];
+
+            // If any selected item is a folder, fetch its contents recursively
+            const folderIds = ids.filter((_, i) => isFolders[i]);
+            if (folderIds.length > 0) {
+                const { fileIds: childIds, s3Keys: childKeys } = await getRecursiveContents(folderIds);
+                idsToDelete.push(...childIds);
+                keysToDelete.push(...childKeys);
+            }
+
+            // S3 Deletions
+            // We need to delete files from S3. Folders in this system are just DB entries with a dummy S3 key,
+            // but we might as well try to delete them if they exist as empty objects, though usually only files matter.
+            // The key list now includes all descendant file keys.
+            for (const key of keysToDelete) {
+                // Determine if it's a folder key (usually starts with folders/) or file
+                // Actually, the backend s3-sign 'delete' action likely handles standard object deletion.
+                // We should be careful not to fail if a key doesn't exist.
+                if (key) {
                     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/s3-sign`, {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${session.access_token}`,
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({ action: 'delete', key: keys[i] }),
+                        body: JSON.stringify({ action: 'delete', key: key }),
                     });
-                    if (!response.ok) console.error(`Failed to delete ${keys[i]}`);
+                    // Log error but continue
+                    if (!response.ok) console.warn(`Failed to delete S3 object: ${key}`);
                 }
             }
 
-
-            const { error } = await supabase.from('files').delete().in('id', ids);
+            // DB Deletions
+            const { error } = await supabase.from('files').delete().in('id', idsToDelete);
             if (error) throw error;
 
             setFiles(files.filter(f => !ids.includes(f.id)));
             setSelectedIds(new Set()); // Clear selection
         } catch (error: any) {
+            console.error(error);
             alert('Silme başarısız: ' + error.message);
         }
     };
