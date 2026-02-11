@@ -4,6 +4,8 @@ import { Folder, Upload, Trash2, LogOut, Search, Plus, Download, Loader2, Chevro
 import { FileThumbnail } from '../components/FileThumbnail';
 import { CreateFolderModal } from '../components/CreateFolderModal';
 import { ShareModal } from '../components/ShareModal';
+import { RenameModal } from '../components/RenameModal';
+import { FilePenLine } from 'lucide-react';
 
 interface FileItem {
     id: string;
@@ -33,6 +35,10 @@ export default function Dashboard() {
     // Share Modal State
     const [shareModalOpen, setShareModalOpen] = useState(false);
     const [selectedFileForShare, setSelectedFileForShare] = useState<FileItem | null>(null);
+
+    // Rename Modal State
+    const [renameModalOpen, setRenameModalOpen] = useState(false);
+    const [selectedFileForRename, setSelectedFileForRename] = useState<FileItem | null>(null);
 
     // Folder State
     const [currentFolder, setCurrentFolder] = useState<FileItem | null>(null);
@@ -143,6 +149,26 @@ export default function Dashboard() {
             setSelectedIds(new Set());
         } else {
             setSelectedIds(new Set(files.map(f => f.id)));
+        }
+    };
+
+    const handleRename = async (newName: string) => {
+        if (!session || !selectedFileForRename) return;
+
+        try {
+            const { error } = await supabase
+                .from('files')
+                .update({ name: newName })
+                .eq('id', selectedFileForRename.id);
+
+            if (error) throw error;
+
+            // Optimistic update or refresh
+            fetchFiles(currentFolder?.id || null);
+            setRenameModalOpen(false);
+            setSelectedFileForRename(null);
+        } catch (error: any) {
+            alert('Yeniden adlandırma başarısız: ' + error.message);
         }
     };
 
@@ -375,6 +401,17 @@ export default function Dashboard() {
                 />
             )}
 
+            {/* Rename Modal */}
+            {selectedFileForRename && (
+                <RenameModal
+                    isOpen={renameModalOpen}
+                    onClose={() => setRenameModalOpen(false)}
+                    onRename={handleRename}
+                    currentName={selectedFileForRename.name}
+                    type={selectedFileForRename.mime_type === FOLDER_MIME_TYPE ? 'folder' : 'file'}
+                />
+            )}
+
             {/* Sidebar */}
             <div className="w-64 bg-slate-900 border-r border-white/10 p-6 flex flex-col z-20">
                 <div className="flex items-center gap-3 mb-10 text-blue-500">
@@ -593,6 +630,9 @@ export default function Dashboard() {
                                                             </button>
                                                         </>
                                                     )}
+                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedFileForRename(file); setRenameModalOpen(true) }} className="p-1.5 bg-black/50 hover:bg-yellow-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="Ad Değiştir">
+                                                        <FilePenLine className="w-3.5 h-3.5" />
+                                                    </button>
                                                     <button onClick={(e) => { e.stopPropagation(); handleDelete(file.id, file.s3_key, isFolder) }} className="p-1.5 bg-black/50 hover:bg-red-600 rounded-lg backdrop-blur-sm text-white transition-colors" title="Sil">
                                                         <Trash2 className="w-3.5 h-3.5" />
                                                     </button>
@@ -682,6 +722,9 @@ export default function Dashboard() {
                                                             </button>
                                                         </>
                                                     )}
+                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedFileForRename(file); setRenameModalOpen(true) }} className="p-1.5 hover:bg-yellow-500/20 text-yellow-400 rounded-lg transition-colors" title="Ad Değiştir">
+                                                        <FilePenLine className="w-4 h-4" />
+                                                    </button>
                                                     <button onClick={(e) => { e.stopPropagation(); handleDelete(file.id, file.s3_key, isFolder) }} className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors" title="Sil">
                                                         <Trash2 className="w-4 h-4" />
                                                     </button>
